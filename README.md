@@ -98,14 +98,6 @@ After running experiments, you'll find:
   - `results_table.csv`
   - Comparison plots
 
-## Key Findings
-
-Expected results based on experiments:
-
-- **RBF classifiers** can achieve >95% accuracy on MNIST with only **2D latent space**
-- **Dot-product** classifiers need ≥10D for similar performance
-- **Margin-based methods** (ArcFace, CosFace) show better calibration
-- 2D latent space enables direct visualization without t-SNE
 
 ## Examples
 
