@@ -1,0 +1,231 @@
+"""
+Different classifier heads based on various similarity functions.
+"""
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+import math
+
+
+class DotProductClassifier(nn.Module):
+    """Standard softmax classifier using dot product similarity."""
+    
+    def __init__(self, in_features, num_classes):
+        super(DotProductClassifier, self).__init__()
+        self.weight = nn.Parameter(torch.randn(num_classes, in_features))
+        nn.init.xavier_uniform_(self.weight)
+        
+    def forward(self, x):
+        # Standard linear layer: logits = x @ W^T
+        logits = F.linear(x, self.weight)
+        return logits
+
+
+class RBFClassifier(nn.Module):
+    """RBF-based classifier using radial basis function kernel."""
+    
+    def __init__(self, in_features, num_classes, gamma=1.0):
+        super(RBFClassifier, self).__init__()
+        # Learnable class prototypes
+        self.prototypes = nn.Parameter(torch.randn(num_classes, in_features))
+        nn.init.xavier_uniform_(self.prototypes)
+        self.gamma = gamma
+        
+    def forward(self, x):
+        # Compute squared Euclidean distances
+        # ||x - c||^2 = ||x||^2 + ||c||^2 - 2<x, c>
+        x_norm_sq = (x ** 2).sum(dim=1, keepdim=True)  # (batch, 1)
+        p_norm_sq = (self.prototypes ** 2).sum(dim=1)  # (num_classes,)
+        
+        # Compute distances
+        distances_sq = x_norm_sq + p_norm_sq - 2 * (x @ self.prototypes.T)
+        
+        # RBF kernel: exp(-gamma * distance^2)
+        # Use negative distance as logits for numerical stability
+        logits = -self.gamma * distances_sq
+        return logits
+
+
+class CosFaceClassifier(nn.Module):
+    """CosFace: cosine similarity with additive margin."""
+    
+    def __init__(self, in_features, num_classes, s=30.0, m=0.35):
+        super(CosFaceClassifier, self).__init__()
+        self.in_features = in_features
+        self.num_classes = num_classes
+        self.s = s  # Scale factor
+        self.m = m  # Margin
+        
+        self.weight = nn.Parameter(torch.randn(num_classes, in_features))
+        nn.init.xavier_uniform_(self.weight)
+        
+    def forward(self, x, labels=None):
+        # Normalize features and weights
+        x_norm = F.normalize(x, dim=1)
+        w_norm = F.normalize(self.weight, dim=1)
+        
+        # Cosine similarity
+        cosine = F.linear(x_norm, w_norm)
+        
+        # Apply margin during training
+        if self.training and labels is not None:
+            # Create one-hot labels
+            one_hot = torch.zeros_like(cosine)
+            one_hot.scatter_(1, labels.view(-1, 1), 1.0)
+            
+            # Add margin to target class
+            cosine = cosine - one_hot * self.m
+        
+        # Scale
+        logits = self.s * cosine
+        return logits
+
+
+class ArcFaceClassifier(nn.Module):
+    """ArcFace: cosine similarity with angular margin."""
+    
+    def __init__(self, in_features, num_classes, s=30.0, m=0.5):
+        super(ArcFaceClassifier, self).__init__()
+        self.in_features = in_features
+        self.num_classes = num_classes
+        self.s = s  # Scale factor
+        self.m = m  # Angular margin
+        
+        self.weight = nn.Parameter(torch.randn(num_classes, in_features))
+        nn.init.xavier_uniform_(self.weight)
+        
+        # For numerical stability
+        self.cos_m = math.cos(m)
+        self.sin_m = math.sin(m)
+        self.th = math.cos(math.pi - m)
+        self.mm = math.sin(math.pi - m) * m
+        
+    def forward(self, x, labels=None):
+        # Normalize features and weights
+        x_norm = F.normalize(x, dim=1)
+        w_norm = F.normalize(self.weight, dim=1)
+        
+        # Cosine similarity
+        cosine = F.linear(x_norm, w_norm)
+        
+        # Apply angular margin during training
+        if self.training and labels is not None:
+            # Calculate cos(theta + m)
+            sine = torch.sqrt(1.0 - torch.pow(cosine, 2))
+            phi = cosine * self.cos_m - sine * self.sin_m
+            
+            # Avoid numerical issues
+            phi = torch.where(cosine > self.th, phi, cosine - self.mm)
+            
+            # Create one-hot labels
+            one_hot = torch.zeros_like(cosine)
+            one_hot.scatter_(1, labels.view(-1, 1), 1.0)
+            
+            # Apply margin to target class
+            output = (one_hot * phi) + ((1.0 - one_hot) * cosine)
+            output = output * self.s
+        else:
+            output = self.s * cosine
+            
+        return output
+
+
+class HybridClassifier(nn.Module):
+    """Hybrid classifier combining distance and angular similarity."""
+    
+    def __init__(self, in_features, num_classes, alpha=0.5, gamma=1.0):
+        super(HybridClassifier, self).__init__()
+        self.prototypes = nn.Parameter(torch.randn(num_classes, in_features))
+        nn.init.xavier_uniform_(self.prototypes)
+        self.alpha = alpha  # Balance between cosine and distance
+        self.gamma = gamma  # RBF bandwidth
+        
+    def forward(self, x):
+        # L2 normalize for cosine similarity
+        x_norm = F.normalize(x, dim=1)
+        p_norm = F.normalize(self.prototypes, dim=1)
+        
+        # Cosine similarity
+        cosine_sim = F.linear(x_norm, p_norm)
+        
+        # Euclidean distance
+        x_norm_sq = (x ** 2).sum(dim=1, keepdim=True)
+        p_norm_sq = (self.prototypes ** 2).sum(dim=1)
+        distances_sq = x_norm_sq + p_norm_sq - 2 * (x @ self.prototypes.T)
+        
+        # Combine both similarities
+        # Higher cosine = better, lower distance = better
+        logits = self.alpha * cosine_sim - (1 - self.alpha) * self.gamma * distances_sq
+        return logits
+
+
+class AdaptiveRBFClassifier(nn.Module):
+    """RBF classifier with learnable bandwidth per class."""
+    
+    def __init__(self, in_features, num_classes):
+        super(AdaptiveRBFClassifier, self).__init__()
+        self.prototypes = nn.Parameter(torch.randn(num_classes, in_features))
+        nn.init.xavier_uniform_(self.prototypes)
+        
+        # Learnable log-bandwidth for each class (ensures positive values)
+        self.log_gamma = nn.Parameter(torch.zeros(num_classes))
+        
+    def forward(self, x):
+        # Compute squared distances
+        x_norm_sq = (x ** 2).sum(dim=1, keepdim=True)
+        p_norm_sq = (self.prototypes ** 2).sum(dim=1)
+        distances_sq = x_norm_sq + p_norm_sq - 2 * (x @ self.prototypes.T)
+        
+        # Apply learnable bandwidth per class
+        gamma = torch.exp(self.log_gamma)  # Ensure positive
+        logits = -(gamma.unsqueeze(0) * distances_sq)
+        return logits
+
+
+class MahalanobisClassifier(nn.Module):
+    """Mahalanobis distance-based classifier."""
+    
+    def __init__(self, in_features, num_classes):
+        super(MahalanobisClassifier, self).__init__()
+        self.prototypes = nn.Parameter(torch.randn(num_classes, in_features))
+        nn.init.xavier_uniform_(self.prototypes)
+        
+        # Learn precision matrix (inverse covariance) for each class
+        # Use Cholesky decomposition for positive definiteness
+        self.log_diag = nn.Parameter(torch.zeros(num_classes, in_features))
+        
+    def forward(self, x):
+        batch_size = x.size(0)
+        num_classes = self.prototypes.size(0)
+        
+        # Compute difference vectors
+        x_expanded = x.unsqueeze(1).expand(-1, num_classes, -1)  # (batch, classes, features)
+        diff = x_expanded - self.prototypes.unsqueeze(0)  # (batch, classes, features)
+        
+        # Apply learned scaling (simplified precision matrix - diagonal)
+        precision_diag = torch.exp(self.log_diag)  # (classes, features)
+        weighted_diff = diff * precision_diag.unsqueeze(0)  # (batch, classes, features)
+        
+        # Mahalanobis distance
+        mahalanobis_sq = (weighted_diff * diff).sum(dim=2)  # (batch, classes)
+        
+        logits = -mahalanobis_sq
+        return logits
+
+
+def get_classifier(classifier_type, in_features, num_classes, **kwargs):
+    """Factory function to get the appropriate classifier."""
+    classifiers = {
+        'dotproduct': DotProductClassifier,
+        'rbf': RBFClassifier,
+        'cosface': CosFaceClassifier,
+        'arcface': ArcFaceClassifier,
+        'hybrid': HybridClassifier,
+        'adaptive_rbf': AdaptiveRBFClassifier,
+        'mahalanobis': MahalanobisClassifier,
+    }
+    
+    if classifier_type not in classifiers:
+        raise ValueError(f"Unknown classifier type: {classifier_type}")
+    
+    return classifiers[classifier_type](in_features, num_classes, **kwargs)
