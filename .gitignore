@@ -1,0 +1,43 @@
+###############################
+# Project ignore for Deep Learning
+###############################
+
+# Ignore dataset folders
+data/
+datasets/
+*.zip
+*.tar.gz
+*.gz
+
+# Ignore checkpoints / weights / models
+checkpoints/
+*.pth
+*.pt
+*.ckpt
+
+# Ignore Python cache and temp
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.swp
+
+# Ignore virtual environments
+venv/
+.env/
+.venv/
+
+# Ignore Jupyter notebook checkpoints
+.ipynb_checkpoints/
+
+# Ignore log files
+*.log
+
+# Ignore large generated artifacts
+outputs/
+results/
+runs/
+
+###############################
+# You can add more patterns here
+###############################
