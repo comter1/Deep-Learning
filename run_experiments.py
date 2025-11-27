@@ -177,7 +177,7 @@ def main():
                        choices=['mnist', 'fashion_mnist', 'cifar10'],
                        help='Dataset to use')
     
-    parser.add_argument('--classifier', type=str, default='dotproduct',
+    parser.add_argument('--classifier', type=str, default='rbf',
                        choices=['dotproduct', 'rbf', 'cosface', 'arcface',
                                'hybrid', 'adaptive_rbf', 'mahalanobis'],
                        help='Classifier type')

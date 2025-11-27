@@ -14,7 +14,7 @@ DEFAULT_LATENT_DIM = 10
 # Classifier settings
 CLASSIFIERS = {
     'dotproduct': {},
-    'rbf': {'gamma': 1.0},
+    'rbf': {'gamma': 10.0},
     'cosface': {'s': 30.0, 'm': 0.35},
     'arcface': {'s': 30.0, 'm': 0.5},
     'hybrid': {'alpha': 0.5, 'gamma': 1.0},
